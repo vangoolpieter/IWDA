@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="nl"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Mijn IWDA</title>
+<style>
+:root{--bg:#f6f7f9;--card:#fff;--tx:#14181f;--mu:#6b7480;--ac:#2563eb;--up:#0f9d58;--dn:#d93025;color-scheme:light dark}
+@media (prefers-color-scheme:dark){:root{--bg:#0f1115;--card:#1a1d24;--tx:#eef0f4;--mu:#9aa3b0;--ac:#6ea0ff;--up:#34c77b;--dn:#ff6b61}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--tx);font-family:-apple-system,Segoe UI,Roboto,sans-serif;padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom)}
+main{max-width:480px;margin:0 auto;padding:16px}
+h1{font-size:18px;margin:4px 0 12px}
+.card{background:var(--card);border-radius:16px;padding:16px;margin-bottom:12px}
+.lbl{font-size:12px;color:var(--mu);text-transform:uppercase;letter-spacing:.04em}
+.big{font-size:34px;font-weight:700;margin-top:4px}.mid{font-size:20px;font-weight:600;margin-top:4px}
+.row{display:flex;gap:12px}.row .card{flex:1}
+.up{color:var(--up)}.dn{color:var(--dn)}.sm{font-size:12px;color:var(--mu);line-height:1.5}
+input{width:100%;font-size:16px;padding:10px;border-radius:10px;border:1px solid var(--mu);background:var(--bg);color:var(--tx);margin-top:8px}button{margin-top:10px;font-size:15px;padding:10px 14px;border-radius:10px;border:0;background:var(--ac);color:#fff}
+svg{width:100%;height:auto;display:block}
+</style></head><body><main>
+<div id="setup" class="card" style="display:none"><div class="lbl">Eenmalig instellen</div><p class="sm">Alleen op dit toestel bewaard.</p><input id="inC" type="number" inputmode="decimal" placeholder="Ingelegd bedrag (€)"><input id="inP" type="number" inputmode="decimal" placeholder="Aankoopkoers per aandeel (€)"><button id="save">Opslaan</button></div>
+<div id="main" style="display:none">
+<h1>Mijn IWDA</h1>
+<div class="card"><div class="lbl">Huidige waarde</div><div class="big" id="val">…</div><div class="sm" id="px"></div></div>
+<div class="row"><div class="card"><div class="lbl">Rendement totaal</div><div class="mid" id="rEur"></div><div class="sm" id="rPct"></div></div>
+<div class="card"><div class="lbl">Afgelopen jaar</div><div class="mid" id="yPct"></div><div class="sm" id="yTxt"></div></div></div>
+<div class="card"><div class="lbl">Waarde positie (€)</div><div id="chart"></div></div>
+<p class="sm" id="foot"></p><button id="reset" style="background:none;border:0;color:var(--mu);font-size:12px;text-decoration:underline;padding:0">Gegevens wijzigen</button>
+</div>
+</main>
+<script>
+var eur=new Intl.NumberFormat("nl-BE",{style:"currency",currency:"EUR"});
+var pct=function(x){return (x>=0?"+":"")+x.toFixed(2).replace(".",",")+" %"};
+var $=function(i){return document.getElementById(i)};
+var cfg=null;
+function load(){
+ try{var s=localStorage.getItem("iwda_cfg");if(s)cfg=JSON.parse(s)}catch(e){}
+ var m=location.hash.match(/c=([\d.]+)&p=([\d.]+)/);
+ if(m){cfg={c:parseFloat(m[1]),p:parseFloat(m[2])};try{localStorage.setItem("iwda_cfg",JSON.stringify(cfg))}catch(e){}
+  try{history.replaceState(null,"",location.pathname+location.search)}catch(e){}}
+}
+function save(){
+ var c=parseFloat($("inC").value.replace(",",".")),p=parseFloat($("inP").value.replace(",","."));
+ if(c>0&&p>0){cfg={c:c,p:p};try{localStorage.setItem("iwda_cfg",JSON.stringify(cfg))}catch(e){}go()}
+}
+function reset(){cfg=null;try{localStorage.removeItem("iwda_cfg")}catch(e){}go()}
+var DATA=null;
+function go(){
+ if(!DATA)return;
+ $("setup").style.display=cfg?"none":"block";$("main").style.display=cfg?"block":"none";
+ if(!cfg)return;
+ var COST=cfg.c,SH=COST/cfg.p,pts=DATA.prices,last=pts[pts.length-1],price=last[1];
+ var val=SH*price,gain=val-COST,p=gain/COST*100,cls=gain>=0?"up":"dn";
+ $("val").textContent=eur.format(val);
+ $("px").textContent="Koers "+price.toFixed(2).replace(".",",")+" € ("+last[0]+")";
+ $("rEur").textContent=(gain>=0?"+":"")+eur.format(gain);$("rEur").className="mid "+cls;$("rPct").textContent=pct(p);
+ $("yPct").textContent=pct(p);$("yPct").className="mid "+cls;
+ var days=Math.round((new Date(last[0])-new Date(pts[0][0]))/864e5);
+ $("yTxt").textContent="sinds aankoop · "+days+" dagen";
+ var W=360,H=200,L=8,R=8,T=12,B=22,vs=pts.map(function(q){return SH*q[1]});
+ var mn=Math.min.apply(null,vs.concat(COST))-30,mx=Math.max.apply(null,vs.concat(COST))+30;
+ var t0=new Date(pts[0][0]).getTime(),t1=new Date(last[0]).getTime();
+ var X=function(q){return L+(new Date(q[0]).getTime()-t0)/((t1-t0)||1)*(W-L-R)};
+ var Y=function(v){return T+(1-(v-mn)/(mx-mn))*(H-T-B)};
+ var path=pts.map(function(q,i){return (i?"L":"M")+X(q).toFixed(1)+" "+Y(SH*q[1]).toFixed(1)}).join(" ");
+ $("chart").innerHTML='<svg viewBox="0 0 '+W+' '+H+'"><line x1="'+L+'" x2="'+(W-R)+'" y1="'+Y(COST)+'" y2="'+Y(COST)+'" stroke="var(--mu)" stroke-dasharray="4 4"/><text x="'+L+'" y="'+(Y(COST)-4)+'" font-size="10" fill="var(--mu)">ingelegd '+eur.format(COST)+'</text><path d="'+path+'" fill="none" stroke="var(--ac)" stroke-width="2.5" stroke-linejoin="round"/><text x="'+L+'" y="'+(H-6)+'" font-size="10" fill="var(--mu)">'+pts[0][0].slice(8)+"/"+pts[0][0].slice(5,7)+'</text><text x="'+(W-R)+'" y="'+(H-6)+'" font-size="10" text-anchor="end" fill="var(--mu)">'+last[0].slice(8)+"/"+last[0].slice(5,7)+'</text></svg>';
+ $("foot").textContent="Slotkoersen Euronext Amsterdam, bron: "+DATA.source+", bijgewerkt "+DATA.updated+". Exclusief kosten en belasting.";
+}
+load();
+fetch("data.json?"+Date.now()).then(function(r){return r.json()}).then(function(D){DATA=D;go()}).catch(function(){$("val").textContent="Kon data.json niet laden";$("main").style.display="block"});
+$("save").onclick=save;$("reset").onclick=reset;
+</script></body></html>
