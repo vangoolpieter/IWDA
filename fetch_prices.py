@@ -5,7 +5,8 @@ UA = {"User-Agent": "Mozilla/5.0"}
 # Voeg hier een regel toe per ETF. "file" = bestand in de repo, "start" = eerste datum die bewaard wordt.
 # "append_only": True = bestaande koersen (uit je CSV) blijven staan, enkel nieuwe dagen worden toegevoegd.
 INSTRUMENTS = [
-    {"file": "data.json", "start": "2026-05-26", "stooq": "iwda.nl", "yahoo": "IWDA.AS"},
+    # IWDA vanaf 18-11-2022 (12de verjaardag Louise; Axelle: 06-03-2026). yahoo_range "5y" om die historiek op te halen.
+    {"file": "data.json", "start": "2022-11-18", "stooq": "iwda.nl", "yahoo": "IWDA.AS", "yahoo_range": "5y"},
     {"file": "swrd.json", "start": "2026-08-24", "stooq": "swrd.nl", "yahoo": "SWRD.AS", "append_only": True},
 ]
 
@@ -24,8 +25,8 @@ def stooq(sym):
     return out
 
 
-def yahoo(sym):
-    d = json.loads(get(f"https://query1.finance.yahoo.com/v8/finance/chart/{sym}?range=1y&interval=1d"))
+def yahoo(sym, rng="1y"):
+    d = json.loads(get(f"https://query1.finance.yahoo.com/v8/finance/chart/{sym}?range={rng}&interval=1d"))
     res = d["chart"]["result"][0]
     out = []
     for t, c in zip(res["timestamp"], res["indicators"]["quote"][0]["close"]):
@@ -38,9 +39,11 @@ def yahoo(sym):
 
 def update(inst):
     new, src = None, None
-    for name, fn, sym in (("stooq", stooq, inst["stooq"]), ("yahoo", yahoo, inst["yahoo"])):
+    bronnen = (("stooq", lambda: stooq(inst["stooq"])),
+               ("yahoo", lambda: yahoo(inst["yahoo"], inst.get("yahoo_range", "1y"))))
+    for name, fn in bronnen:
         try:
-            new = fn(sym)
+            new = fn()
             src = name
             break
         except Exception as e:

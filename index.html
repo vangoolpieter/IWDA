@@ -17,7 +17,7 @@ h1{font-size:18px;margin:4px 0 12px}
 input{width:100%;font-size:16px;padding:10px;border-radius:10px;border:1px solid var(--mu);background:var(--bg);color:var(--tx);margin-top:8px}button{margin-top:10px;font-size:15px;padding:10px 14px;border-radius:10px;border:0;background:var(--ac);color:#fff}
 svg{width:100%;height:auto;display:block}
 </style></head><body><main>
-<div id="setup" class="card" style="display:none"><div class="lbl">Eenmalig instellen</div><p class="sm">Alleen op dit toestel bewaard.</p><input id="inN" type="text" placeholder="Naam (voor de titel)"><input id="inC" type="number" inputmode="decimal" placeholder="Ingelegd bedrag (€)"><input id="inP" type="number" inputmode="decimal" placeholder="Aankoopkoers per aandeel (€)"><button id="save">Opslaan</button></div>
+<div id="setup" class="card" style="display:none"><div class="lbl">Eenmalig instellen</div><p class="sm">Alleen op dit toestel bewaard.</p><input id="inN" type="text" placeholder="Naam (voor de titel)"><input id="inC" type="number" inputmode="decimal" placeholder="Ingelegd bedrag (€)"><input id="inD" type="date" title="Startdatum"><input id="inP" type="number" inputmode="decimal" placeholder="Aankoopkoers (leeg = slotkoers op startdatum)"><button id="save">Opslaan</button></div>
 <div id="main" style="display:none">
 <h1 id="ttl">Aandelen</h1>
 <div class="card"><div class="lbl">Huidige waarde</div><div class="big" id="val">…</div><div class="sm" id="px"></div></div>
@@ -32,17 +32,21 @@ var eur=new Intl.NumberFormat("nl-BE",{style:"currency",currency:"EUR"});
 var pct=function(x){return (x>=0?"+":"")+x.toFixed(2).replace(".",",")+" %"};
 var $=function(i){return document.getElementById(i)};
 var cfg=null;
+var DEF_START="2026-05-26"; // oude links zonder d= rekenen zoals vroeger vanaf de echte aankoop
+var okD=function(x){return /^\d{4}-\d{2}-\d{2}$/.test(x||"")?x:null};
+var nlD=function(x){return x.slice(8)+"/"+x.slice(5,7)+"/"+x.slice(0,4)};
+var addD=function(x,n){var t=new Date(x+"T00:00:00Z");t.setUTCDate(t.getUTCDate()+n);return t.toISOString().slice(0,10)};
 function load(){
  try{var s=localStorage.getItem("iwda_cfg");if(s)cfg=JSON.parse(s)}catch(e){}
  if(location.hash.length>1){
-  var q=new URLSearchParams(location.hash.slice(1)),c=parseFloat(q.get("c")),p=parseFloat(q.get("p"));
-  if(c>0&&p>0){cfg={c:c,p:p,n:(q.get("n")||"").slice(0,40)};try{localStorage.setItem("iwda_cfg",JSON.stringify(cfg))}catch(e){}
+  var q=new URLSearchParams(location.hash.slice(1)),c=parseFloat(q.get("c")),p=parseFloat(q.get("p")),d=okD(q.get("d"));
+  if(c>0&&(p>0||d)){cfg={c:c,p:p>0?p:null,d:d,n:(q.get("n")||"").slice(0,40)};try{localStorage.setItem("iwda_cfg",JSON.stringify(cfg))}catch(e){}
    try{history.replaceState(null,"",location.pathname+location.search)}catch(e){}}
  }
 }
 function save(){
- var c=parseFloat($("inC").value.replace(",",".")),p=parseFloat($("inP").value.replace(",","."));
- if(c>0&&p>0){cfg={c:c,p:p,n:$("inN").value.trim().slice(0,40)};try{localStorage.setItem("iwda_cfg",JSON.stringify(cfg))}catch(e){}go()}
+ var c=parseFloat($("inC").value.replace(",",".")),p=parseFloat($("inP").value.replace(",",".")),d=okD($("inD").value);
+ if(c>0&&(p>0||d)){cfg={c:c,p:p>0?p:null,d:d,n:$("inN").value.trim().slice(0,40)};try{localStorage.setItem("iwda_cfg",JSON.stringify(cfg))}catch(e){}go()}
 }
 function reset(){cfg=null;try{localStorage.removeItem("iwda_cfg")}catch(e){}go()}
 var DATA=null;
@@ -51,14 +55,16 @@ function go(){
  $("setup").style.display=cfg?"none":"block";$("main").style.display=cfg?"block":"none";
  if(!cfg)return;
  var ttl=cfg.n?cfg.n+" haar aandelen":"Aandelen";$("ttl").textContent=ttl;document.title=ttl;
- var COST=cfg.c,SH=COST/cfg.p,pts=DATA.prices,last=pts[pts.length-1],price=last[1];
+ var start=cfg.d||DEF_START,pts=DATA.prices.filter(function(q){return q[0]>=start});
+ if(!pts.length||pts[0][0]>addD(start,7)){$("val").textContent="Nog geen koersen vanaf "+nlD(start);$("px").textContent="";return}
+ var COST=cfg.c,SH=COST/(cfg.p||pts[0][1]),last=pts[pts.length-1],price=last[1];
  var val=SH*price,gain=val-COST,p=gain/COST*100,cls=gain>=0?"up":"dn";
  $("val").textContent=eur.format(val);
  $("px").textContent="Koers "+price.toFixed(2).replace(".",",")+" € ("+last[0]+")";
- $("rEur").textContent=(gain>=0?"+":"")+eur.format(gain);$("rEur").className="mid "+cls;$("rPct").textContent=pct(p);
- $("yPct").textContent=pct(p);$("yPct").className="mid "+cls;
- var days=Math.round((new Date(last[0])-new Date(pts[0][0]))/864e5);
- $("yTxt").textContent="sinds aankoop · "+days+" dagen";
+ $("rEur").textContent=(gain>=0?"+":"")+eur.format(gain);$("rEur").className="mid "+cls;$("rPct").textContent=pct(p)+" · sinds "+nlD(pts[0][0]);
+ var yr=addD(last[0],-365),yb=null;pts.forEach(function(q){if(q[0]<=yr)yb=q});
+ if(yb){var yp=(price/yb[1]-1)*100;$("yPct").textContent=pct(yp);$("yPct").className="mid "+(yp>=0?"up":"dn");$("yTxt").textContent="sinds "+nlD(yb[0])}
+ else{var days=Math.round((new Date(last[0])-new Date(pts[0][0]))/864e5);$("yPct").textContent=pct(p);$("yPct").className="mid "+cls;$("yTxt").textContent="sinds start · "+days+" dagen"}
  var W=360,H=210,L=46,R=10,T=12,B=22,vs=pts.map(function(q){return SH*q[1]});
  var lo=Math.min.apply(null,vs.concat(COST)),hi=Math.max.apply(null,vs.concat(COST)),pad=(hi-lo)*.1||10;
  var mn=lo-pad,mx=hi+pad,raw=(mx-mn)/4,mag=Math.pow(10,Math.floor(Math.log10(raw))),st=[1,2,2.5,5,10].map(function(k){return k*mag}).filter(function(v){return v>=raw*.8})[0];
@@ -71,9 +77,9 @@ function go(){
  ticks.forEach(function(v){s+='<line x1="'+L+'" x2="'+(W-R)+'" y1="'+Y(v).toFixed(1)+'" y2="'+Y(v).toFixed(1)+'" stroke="var(--mu)" stroke-opacity=".25"/><text x="'+(L-6)+'" y="'+(Y(v)+3).toFixed(1)+'" font-size="10" text-anchor="end" fill="var(--mu)">'+Math.round(v).toLocaleString("nl-BE")+'</text>'});
  s+='<line x1="'+L+'" x2="'+(W-R)+'" y1="'+Y(COST).toFixed(1)+'" y2="'+Y(COST).toFixed(1)+'" stroke="var(--mu)" stroke-dasharray="4 4"/><text x="'+(W-R)+'" y="'+(Y(COST)-4).toFixed(1)+'" font-size="10" text-anchor="end" fill="var(--mu)">ingelegd '+eur.format(COST)+'</text>';
  s+='<path d="'+path+'" fill="none" stroke="var(--ac)" stroke-width="2.5" stroke-linejoin="round"/>';
- s+='<text x="'+L+'" y="'+(H-6)+'" font-size="10" fill="var(--mu)">'+pts[0][0].slice(8)+"/"+pts[0][0].slice(5,7)+'</text><text x="'+(W-R)+'" y="'+(H-6)+'" font-size="10" text-anchor="end" fill="var(--mu)">'+last[0].slice(8)+"/"+last[0].slice(5,7)+'</text></svg>';
+ s+='<text x="'+L+'" y="'+(H-6)+'" font-size="10" fill="var(--mu)">'+nlD(pts[0][0])+'</text><text x="'+(W-R)+'" y="'+(H-6)+'" font-size="10" text-anchor="end" fill="var(--mu)">'+nlD(last[0])+'</text></svg>';
  $("chart").innerHTML=s;
- $("foot").textContent="Slotkoersen Euronext Amsterdam, bron: "+DATA.source+", bijgewerkt "+DATA.updated+". Exclusief kosten en belasting.";
+ $("foot").textContent="Slotkoersen Euronext Amsterdam, bron: "+DATA.source+", bijgewerkt "+DATA.updated+". Berekend alsof "+eur.format(COST)+" belegd werd op "+nlD(pts[0][0])+". Exclusief kosten en belasting.";
 }
 load();
 fetch("data.json?"+Date.now()).then(function(r){return r.json()}).then(function(D){DATA=D;go()}).catch(function(){$("val").textContent="Kon data.json niet laden";$("main").style.display="block"});
